@@ -1,0 +1,22 @@
+class SmallConfig:
+  # 整体相关
+  batch_size = 64
+  n_classes = 2
+
+  max_num_steps = 250
+  vocab_size = 20000
+
+  keep_prob = 0.5
+  base_learning_rate = 0.01
+  lr_decay = 0.98
+  init_scale = 0.1
+
+  # RNN相关
+  embedding_size = 50
+  hidden_size = 128
+  rnn_layers = 2
+  bi_lstm = True
+
+  # CNN相关(现在直接写在代码里面了)
+  width=10
+  height=10
