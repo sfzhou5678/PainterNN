@@ -1,8 +1,8 @@
-from pnn.ForwardRPNNModel import ForwardRPNNModel
+from pnn.model.ForwardRPNNModel import ForwardRPNNModel
 
-from pnn.data_helper import *
-
-from pnn import data_reader
+import numpy as np
+import tensorflow as tf
+from pnn.data_for_model import tfdata_handler
 from pnn.config import SmallConfig
 from collections import Counter
 
@@ -63,15 +63,15 @@ def num_train():
     id_sequences, wordVectors = mini_scale_word_vector(id_sequences, wordVectors, config.vocab_size)
 
   labels = [0 if i <= (len(id_sequences) - 1) // 2 else 1 for i in range(len(id_sequences))]
-  data_reader.prepare_tfrecords(id_sequences, labels)
+  tfdata_handler.prepare_tfrecords(id_sequences, labels)
 
   # # 这种tfRecords的方式也可以用PTB中的data_producer代替
-  train_ids, train_label = data_reader.get_records('data/train.tfrecords')
+  train_ids, train_label = tfdata_handler.get_records('data/train.tfrecords')
   train_ids_batch, train_label_batch = tf.train.shuffle_batch([train_ids, train_label], batch_size=config.batch_size,
                                                               capacity=config.batch_size * 3 + 1000,
                                                               min_after_dequeue=config.batch_size * 3 + 1000 - 1)
 
-  val_ids, val_label = data_reader.get_records('data/valid.tfrecords')
+  val_ids, val_label = tfdata_handler.get_records('data/valid.tfrecords')
   val_ids_batch, val_label_batch = tf.train.shuffle_batch([val_ids, val_label], batch_size=config.batch_size,
                                                           capacity=config.batch_size * 3 + 1000,
                                                           min_after_dequeue=config.batch_size * 3 + 1000 - 1)

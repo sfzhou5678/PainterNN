@@ -1,5 +1,5 @@
 import tensorflow as tf
-from pnn.cnn_utils import *
+from pnn.model.cnn_utils import *
 
 
 class ForwardRPNNModel:
