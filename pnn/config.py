@@ -11,12 +11,15 @@ class SmallConfig:
   lr_decay = 0.98
   init_scale = 0.1
 
-  # RNN相关
-  embedding_size = 50
-  hidden_size = 128
-  rnn_layers = 2
-  bi_lstm = True
-
   # CNN相关(现在直接写在代码里面了)
   width=10
   height=10
+
+  # RNN相关
+  embedding_size = 50
+  # hidden_size = 128
+  hidden_size = width*height
+
+  rnn_layers = 2
+  bi_lstm = True
+

@@ -2,7 +2,7 @@ import tensorflow as tf
 from pnn.model.cnn_utils import *
 
 
-class ForwardRPNNModel:
+class BackwardRPNNModel:
   def __init__(self, config, is_training, GO_ID):
     self.input_ids = tf.placeholder(tf.int32, [None, config.max_num_steps], name='input_ids')
     self.labels = tf.placeholder(tf.int32, [None, config.n_classes], name='labels')
@@ -83,7 +83,8 @@ class ForwardRPNNModel:
   def pnn_decode(self, encoder_outputs, encoder_final_state, hidden_units, rnn_layers=2,
                  keep_prob=0.5):
     with tf.variable_scope("decoder", ):
-      def build_decoder_cell():
+
+      def build_decoder_cell(memory, use_attention=False):
         def get_single_cell(hidden_size, keep_prob):
           cell = tf.nn.rnn_cell.BasicLSTMCell(hidden_size)
           if keep_prob < 1:
@@ -95,11 +96,9 @@ class ForwardRPNNModel:
           [get_single_cell(hidden_units, keep_prob) for _ in range(rnn_layers)])
         decoder_init_state = encoder_final_state
 
-        use_attention = True
         if use_attention:
           ## Create an attention mechanism
-          # TODO 这里的memory_sequence_length表示source_sequence_length(输入，不是输出targets)中的非PAD的长度
-          memory = encoder_outputs
+          memory = memory  # TODO 在反向attention中，memory应该是pixelVecs，并且这个memory应该是动态的
           attention_mechanism = tf.contrib.seq2seq.LuongAttention(
             self.config.hidden_size, memory,
             # memory_sequence_length=seq_lengths,
@@ -119,34 +118,38 @@ class ForwardRPNNModel:
 
         return decoder_cell, decoder_init_state
 
-      decoder_cell, decoder_init_state = build_decoder_cell()
+      last_pixel_vec = tf.zeros(
+        [self.config.batch_size, self.config.width, self.config.height, self.config.embedding_size],
+        dtype=tf.float32)
+      pixel_vec_list = []
+      pixel_vec_list.append(last_pixel_vec)
 
-      pixel_vec = []
+      decoder_cell, decoder_init_state = build_decoder_cell(pixel_vec_list, use_attention=False)
       state = decoder_init_state
+
+      # fixme 不知道pixelList的更新能不能传递到attention层，如果不能的话需要手动初始化
       with tf.variable_scope("RNN"):
-        # 从GO开始，到倒数第二个数字未知，通过前GP以及max_steps-1个targtes来产生共max_steps个pred
-        for time_step in range(self.config.width * self.config.height - 1):
+        # 为句子中的每一个单词建模,共执行maxNumSteps次
+        for time_step in range(self.config.max_num_steps):
           if time_step > 0:
             tf.get_variable_scope().reuse_variables()
-          if time_step == 0:
-            (_, state) = decoder_cell(self.embedded_GO_ID, state)
+            # last_pixel_latent = self.get_latent(last_pixel_vec, self.config.embedding_size, self.config.hidden_size,
+            #                                     name='abc', reuse=True)
+          last_pixel_latent = self.get_latent(last_pixel_vec, self.config.embedding_size, self.config.hidden_size,
+                                              name='abc')
+          cur_word_embedding = self.embedd_encoder_inputs[:, time_step, :]
 
-            alignment = state.alignments  # shape=[batchsize,maxNumStep]
-            target_pixel_vec = self.embedd_encoder_inputs * alignment[:, :, None]  # 期望shape=[batchSize, embeddingSize]
-            target_pixel_vec = tf.reduce_sum(target_pixel_vec, axis=1)
-            pixel_vec.append(target_pixel_vec)
+          (increment_weights, state) = decoder_cell(last_pixel_latent, state)
+          increment_weights = tf.reshape(increment_weights,
+                                         [self.config.batch_size, self.config.width, self.config.height])
 
-          (_, state) = decoder_cell(target_pixel_vec, state)
-          alignment = state.alignments  # shape=[batchsize,maxNumStep]
-          target_pixel_vec = self.embedd_encoder_inputs * alignment[:, :, None]  # 期望shape=[batchSize, embeddingSize]
-          target_pixel_vec = tf.reduce_sum(target_pixel_vec, axis=1)
-          pixel_vec.append(target_pixel_vec)
+          increment_vec = increment_weights[:, :, :, None] * cur_word_embedding[:, None, None, :]
 
-        pixel_vec = tf.reshape(pixel_vec, [self.config.batch_size,
-                                           self.config.height, self.config.width,
-                                           self.config.embedding_size])
+          last_pixel_vec += increment_vec
+          pixel_vec_list.append(last_pixel_vec)
+      final_pixel_vec = last_pixel_vec
 
-      return pixel_vec
+      return final_pixel_vec
 
   def cnn_clf(self, pixel_vec, name, reuse):
     norm = True
@@ -204,7 +207,7 @@ class ForwardRPNNModel:
 
     global_step = tf.contrib.framework.get_or_create_global_step()
     learning_rate = tf.train.exponential_decay(
-      0.1,
+      0.01,
       global_step,
       300,
       0.98
@@ -215,3 +218,53 @@ class ForwardRPNNModel:
 
   def assign_embedding(self, sess, word_vector):
     sess.run(tf.assign(self.embedding, word_vector))
+
+  def get_latent(self, input, input_depth, output_size, name):
+    norm = True
+
+    # TODO 构建网络的过程弄成for
+    DEPTH1 = 32
+    DEPTH2 = DEPTH1 * 2
+    DEPTH3 = DEPTH2 * 2
+    DEPTH4 = DEPTH3 * 2
+
+    with tf.variable_scope(name):
+      # 第一层
+      network = conv_2d(input, [3, 3, input_depth, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv1',
+                        norm=norm,
+                        is_training=self.is_training)
+      network = conv_2d(network, [3, 3, DEPTH1, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv2',
+                        norm=norm, is_training=self.is_training)
+      network = max_pool_2d(network, [1, 2, 2, 1], [1, 2, 2, 1], 'layer1-pool1')
+
+      # 第二层
+      # network = conv_2d(network, [3, 3, DEPTH1, DEPTH2], [DEPTH2], [1, 1, 1, 1], 'layer2-conv1',
+      #                   norm=norm, is_training=self.is_training)
+      # network = conv_2d(network, [3, 3, DEPTH2, DEPTH2], [DEPTH2], [1, 1, 1, 1], 'layer2-conv2',
+      #                   norm=norm, is_training=self.is_training)
+      # network = max_pool_2d(network, [1, 2, 2, 1], [1, 2, 2, 1], 'layer2-pool1')
+
+      # # 第三层
+      # network = conv_2d(network, [3, 3, DEPTH2, DEPTH3], [DEPTH3], [1, 1, 1, 1], 'layer3-conv1', norm=norm,
+      #                   is_training=self.is_training)
+      # network = conv_2d(network, [3, 3, DEPTH3, DEPTH3], [DEPTH3], [1, 1, 1, 1], 'layer3-conv2',
+      #                   norm=norm, is_training=self.is_training)
+      # network = max_pool_2d(network, [1, 2, 2, 1], [1, 2, 2, 1], 'layer3-pool1')
+      #
+      # # 第四层
+      # network = conv_2d(network, [3, 3, DEPTH3, DEPTH4], [DEPTH4], [1, 1, 1, 1], 'layer4-conv1', norm=norm,
+      #                   is_training=self.is_training)
+      # network = conv_2d(network, [3, 3, DEPTH4, DEPTH4], [DEPTH4], [1, 1, 1, 1], 'layer4-conv2',
+      #                   norm=norm, is_training=self.is_training)
+      # network = max_pool_2d(network, [1, 2, 2, 1], [1, 2, 2, 1], 'layer4-pool1')
+
+      # 最后将CNN产生的值通过全局平均池化，再通过全连接层产生latent vector
+      net = slim.avg_pool2d(network, network.get_shape()[1:3], padding='VALID', scope='AvgPool')
+      # 这里不能加is_training=false，如果加了就会导致val时所有cos均为1 (原因未知，但是官方IncepResnetV2中也是恒为true的)
+      net = slim.dropout(net, 0.5, is_training=self.is_training, scope='Dropout')
+      net = slim.flatten(net)
+
+      # 最后加上一个全连接层做分类
+      latent = slim.fully_connected(net, output_size, activation_fn=None, scope='latent_vec')
+
+    return latent
