@@ -11,14 +11,20 @@ class BackwardRPNNModel:
     self.is_training = is_training
 
     with tf.device("/cpu:0"):
-      self.embedding = tf.get_variable("embedding", [config.vocab_size, config.embedding_size], dtype=tf.float32)
+      self.embedding = tf.get_variable("embedding", [config.vocab_size, config.word_embedding_size], dtype=tf.float32,
+                                       trainable=False,
+                                       )
       self.embedd_encoder_inputs = tf.nn.embedding_lookup(self.embedding, self.input_ids)
+      # if is_training:
+      #   rnn_embed_inputs = tf.nn.dropout(self.embedd_encoder_inputs, config.keep_prob)
+      # else:
+      rnn_embed_inputs = self.embedd_encoder_inputs
 
     self.embedded_GO_ID = tf.nn.embedding_lookup(self.embedding,
                                                  tf.constant(GO_ID, dtype=tf.int32,
                                                              shape=[config.batch_size],
                                                              name='GO_ID'))
-    self.pixel_vec = self.get_pixel_vec(self.embedd_encoder_inputs, config.hidden_size)
+    self.pixel_vec = self.get_pixel_vec(rnn_embed_inputs, config.hidden_size)
 
     self.logits = self.cnn_clf(self.pixel_vec, 'cnn_encoder', not is_training)
 
@@ -27,18 +33,18 @@ class BackwardRPNNModel:
     correct_prediction = tf.equal(tf.argmax(self.logits, 1), tf.argmax(self.labels, axis=1))
     self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
-  def get_pixel_vec(self, embedd_encoder_inputs, hidden_units):
-    encoder_outputs, encoded_final_state = self.pnn_encode(embedd_encoder_inputs)
-    pixel_vec = self.pnn_decode(encoder_outputs, encoded_final_state, hidden_units)
+  def get_pixel_vec(self, rnn_embed_inputs, hidden_units):
+    encoder_outputs, encoded_final_state = self.pnn_encode(rnn_embed_inputs, self.is_training)
+    pixel_vec = self.pnn_decode(encoder_outputs, encoded_final_state, hidden_units, self.is_training)
 
     return pixel_vec
 
-  def pnn_encode(self, embedding_inputs, rnn_layers=2, keep_prob=0.5):
+  def pnn_encode(self, embedding_inputs, is_training, rnn_layers=2, keep_prob=0.5):
     with tf.variable_scope('encoder', reuse=(not self.is_training)) as encoder_scope:
       def build_cell(hidden_size):
         def get_single_cell(hidden_size, keep_prob):
           cell = tf.nn.rnn_cell.BasicLSTMCell(hidden_size)
-          if keep_prob < 1:
+          if is_training and keep_prob < 1:
             cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=keep_prob)
           return cell
 
@@ -80,14 +86,14 @@ class BackwardRPNNModel:
         encoder_outputs = tf.maximum(encoder_outputs[0], encoder_outputs[1])
         return encoder_outputs, encoder_final_state
 
-  def pnn_decode(self, encoder_outputs, encoder_final_state, hidden_units, rnn_layers=2,
+  def pnn_decode(self, encoder_outputs, encoder_final_state, hidden_units, is_training, rnn_layers=2,
                  keep_prob=0.5):
     with tf.variable_scope("decoder", ):
 
       def build_decoder_cell(memory, use_attention=False):
         def get_single_cell(hidden_size, keep_prob):
           cell = tf.nn.rnn_cell.BasicLSTMCell(hidden_size)
-          if keep_prob < 1:
+          if is_training and keep_prob < 1:
             cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=keep_prob)
           return cell
 
@@ -119,7 +125,7 @@ class BackwardRPNNModel:
         return decoder_cell, decoder_init_state
 
       last_pixel_vec = tf.zeros(
-        [self.config.batch_size, self.config.width, self.config.height, self.config.embedding_size],
+        [self.config.batch_size, self.config.width, self.config.height, self.config.word_embedding_size],
         dtype=tf.float32)
       pixel_vec_list = []
       pixel_vec_list.append(last_pixel_vec)
@@ -133,16 +139,14 @@ class BackwardRPNNModel:
         for time_step in range(self.config.max_num_steps):
           if time_step > 0:
             tf.get_variable_scope().reuse_variables()
-            # last_pixel_latent = self.get_latent(last_pixel_vec, self.config.embedding_size, self.config.hidden_size,
-            #                                     name='abc', reuse=True)
-          last_pixel_latent = self.get_latent(last_pixel_vec, self.config.embedding_size, self.config.hidden_size,
-                                              name='abc')
-          cur_word_embedding = self.embedd_encoder_inputs[:, time_step, :]
+          last_pixel_latent = self.get_latent(last_pixel_vec, self.config.word_embedding_size, self.config.hidden_size,
+                                              self.is_training, name='abc')
 
           (increment_weights, state) = decoder_cell(last_pixel_latent, state)
           increment_weights = tf.reshape(increment_weights,
                                          [self.config.batch_size, self.config.width, self.config.height])
 
+          cur_word_embedding = self.embedd_encoder_inputs[:, time_step, :]
           increment_vec = increment_weights[:, :, :, None] * cur_word_embedding[:, None, None, :]
 
           last_pixel_vec += increment_vec
@@ -162,7 +166,8 @@ class BackwardRPNNModel:
 
     with tf.variable_scope(name, reuse=reuse):
       # 第一层
-      network = conv_2d(pixel_vec, [3, 3, self.config.embedding_size, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv1',
+      network = conv_2d(pixel_vec, [3, 3, self.config.word_embedding_size, DEPTH1], [DEPTH1], [1, 1, 1, 1],
+                        'layer1-conv1',
                         norm=norm,
                         is_training=self.is_training)
       network = conv_2d(network, [3, 3, DEPTH1, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv2',
@@ -210,7 +215,8 @@ class BackwardRPNNModel:
       0.01,
       global_step,
       300,
-      0.98
+      0.98,
+      staircase=True
     )
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss, global_step)
 
@@ -219,7 +225,7 @@ class BackwardRPNNModel:
   def assign_embedding(self, sess, word_vector):
     sess.run(tf.assign(self.embedding, word_vector))
 
-  def get_latent(self, input, input_depth, output_size, name):
+  def get_latent(self, input, input_depth, output_size, is_training, name):
     norm = True
 
     # TODO 构建网络的过程弄成for
@@ -235,7 +241,8 @@ class BackwardRPNNModel:
                         is_training=self.is_training)
       network = conv_2d(network, [3, 3, DEPTH1, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv2',
                         norm=norm, is_training=self.is_training)
-      network = max_pool_2d(network, [1, 2, 2, 1], [1, 2, 2, 1], 'layer1-pool1')
+      # 根据阿里2017ICCV论文，这里不加池化层
+      # network = max_pool_2d(network, [1, 2, 2, 1], [1, 2, 2, 1], 'layer1-pool1')
 
       # 第二层
       # network = conv_2d(network, [3, 3, DEPTH1, DEPTH2], [DEPTH2], [1, 1, 1, 1], 'layer2-conv1',
@@ -261,7 +268,7 @@ class BackwardRPNNModel:
       # 最后将CNN产生的值通过全局平均池化，再通过全连接层产生latent vector
       net = slim.avg_pool2d(network, network.get_shape()[1:3], padding='VALID', scope='AvgPool')
       # 这里不能加is_training=false，如果加了就会导致val时所有cos均为1 (原因未知，但是官方IncepResnetV2中也是恒为true的)
-      net = slim.dropout(net, 0.5, is_training=self.is_training, scope='Dropout')
+      net = slim.dropout(net, 0.5, is_training=is_training, scope='Dropout')
       net = slim.flatten(net)
 
       # 最后加上一个全连接层做分类

@@ -95,10 +95,11 @@ def num_train():
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-    # train_model.assign_embedding(sess, wordVectors)
-    # print('Assigning WordVectors complected.')
+    train_model.assign_embedding(sess, wordVectors)
+    print('Assigning WordVectors complected.')
 
     print('===========training===========')
+    need_val = True
     for i in range(20000):
 
       # training_input = sess.run(training_input_batch)
@@ -109,7 +110,14 @@ def num_train():
                               {train_model.input_ids: train_ids, train_model.labels: train_labels})
 
       if i % 100 == 0:
-        print(loss, acc)
+        if need_val:
+          val_ids, val_labels = sess.run([val_ids_batch, val_label_batch])
+
+          val_loss, val_acc = sess.run([val_model.loss, val_model.accuracy],
+                                       {val_model.input_ids: val_ids, val_model.labels: val_labels})
+          print(loss, acc, val_loss, val_acc)
+        else:
+          print(loss, acc)
 
     coord.request_stop()
     coord.join(threads)
