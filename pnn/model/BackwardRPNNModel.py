@@ -15,10 +15,10 @@ class BackwardRPNNModel:
                                        # trainable=False,
                                        )
       self.embedd_encoder_inputs = tf.nn.embedding_lookup(self.embedding, self.input_ids)
-      # if is_training:
-      #   rnn_embed_inputs = tf.nn.dropout(self.embedd_encoder_inputs, config.keep_prob)
-      # else:
-      rnn_embed_inputs = self.embedd_encoder_inputs
+      if is_training:
+        rnn_embed_inputs = tf.nn.dropout(self.embedd_encoder_inputs, config.keep_prob)
+      else:
+        rnn_embed_inputs = self.embedd_encoder_inputs
 
     self.embedded_GO_ID = tf.nn.embedding_lookup(self.embedding,
                                                  tf.constant(GO_ID, dtype=tf.int32,
