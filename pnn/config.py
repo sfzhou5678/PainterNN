@@ -9,7 +9,7 @@ class SmallConfig:
   keep_prob = 0.5
   base_learning_rate = 0.01
   lr_decay = 0.98
-  init_scale = 0.05
+  init_scale = 0.1
 
   # CNN相关(现在直接写在代码里面了)
   width=10
