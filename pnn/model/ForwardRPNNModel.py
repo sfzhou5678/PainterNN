@@ -11,7 +11,7 @@ class ForwardRPNNModel:
     self.is_training = is_training
 
     with tf.device("/cpu:0"):
-      self.embedding = tf.get_variable("embedding", [config.vocab_size, config.embedding_size], dtype=tf.float32)
+      self.embedding = tf.get_variable("embedding", [config.vocab_size, config.word_embedding_size], dtype=tf.float32)
       self.embedd_encoder_inputs = tf.nn.embedding_lookup(self.embedding, self.input_ids)
 
     self.embedded_GO_ID = tf.nn.embedding_lookup(self.embedding,
@@ -144,7 +144,7 @@ class ForwardRPNNModel:
 
         pixel_vec = tf.reshape(pixel_vec, [self.config.batch_size,
                                            self.config.height, self.config.width,
-                                           self.config.embedding_size])
+                                           self.config.word_embedding_size])
 
       return pixel_vec
 
@@ -159,7 +159,7 @@ class ForwardRPNNModel:
 
     with tf.variable_scope(name, reuse=reuse):
       # 第一层
-      network = conv_2d(pixel_vec, [3, 3, self.config.embedding_size, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv1',
+      network = conv_2d(pixel_vec, [3, 3, self.config.word_embedding_size, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv1',
                         norm=norm,
                         is_training=self.is_training)
       network = conv_2d(network, [3, 3, DEPTH1, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv2',

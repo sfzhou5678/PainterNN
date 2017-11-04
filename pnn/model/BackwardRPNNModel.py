@@ -2,6 +2,13 @@ import tensorflow as tf
 from pnn.model.cnn_utils import *
 
 
+def get_single_cell(hidden_size, is_training, keep_prob):
+  cell = tf.nn.rnn_cell.BasicLSTMCell(hidden_size)
+  if is_training and keep_prob < 1:
+    cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=keep_prob)
+  return cell
+
+
 class BackwardRPNNModel:
   def __init__(self, config, is_training, GO_ID):
     self.input_ids = tf.placeholder(tf.int32, [None, config.max_num_steps], name='input_ids')
@@ -91,15 +98,9 @@ class BackwardRPNNModel:
     with tf.variable_scope("decoder", ):
 
       def build_decoder_cell(memory, use_attention=False):
-        def get_single_cell(hidden_size, keep_prob):
-          cell = tf.nn.rnn_cell.BasicLSTMCell(hidden_size)
-          if is_training and keep_prob < 1:
-            cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=keep_prob)
-          return cell
-
         # 如果只有decoder用了MultiRNNCell而encoder用的是BasicCell那么就会报错(不一致就会报错)
         decoder_cell = tf.nn.rnn_cell.MultiRNNCell(
-          [get_single_cell(hidden_units, keep_prob) for _ in range(rnn_layers)])
+          [get_single_cell(hidden_units, self.is_training, keep_prob) for _ in range(rnn_layers)])
         decoder_init_state = encoder_final_state
 
         if use_attention:
@@ -124,35 +125,65 @@ class BackwardRPNNModel:
 
         return decoder_cell, decoder_init_state
 
+      def update_attention_decoder_cell(basic_decoder_cell, last_state, memory, length,reuse):
+        with tf.variable_scope("bw_attention%d" % length,reuse=reuse):
+          attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+            self.config.hidden_size, memory,
+            memory_sequence_length=tf.constant(length,
+                                               shape=[self.config.batch_size],
+                                               dtype=tf.int32))  # alignment_history = tf.cond(is_training, lambda: False, lambda: True)
+
+          decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+            basic_decoder_cell, attention_mechanism,
+            attention_layer_size=self.config.hidden_size,
+            name="AttentionWrapper")
+
+          cur_decoder_state = decoder_cell.zero_state(self.config.batch_size, tf.float32).clone(cell_state=last_state)
+
+          return decoder_cell, cur_decoder_state
+
       last_pixel_vec = tf.zeros(
         [self.config.batch_size, self.config.width, self.config.height, self.config.word_embedding_size],
         dtype=tf.float32)
-      pixel_vec_list = []
-      pixel_vec_list.append(last_pixel_vec)
 
-      decoder_cell, decoder_init_state = build_decoder_cell(pixel_vec_list, use_attention=False)
-      state = decoder_init_state
+      # pixel_latent_list = tf.convert_to_tensor(pixel_latent_list, name="pixel_latent_list", dtype=tf.int32)
+      # pixel_latent_list = tf.reshape(pixel_latent_list, [-1])
 
-      # fixme 不知道pixelList的更新能不能传递到attention层，如果不能的话需要手动初始化
+      basic_decoder_cell = tf.nn.rnn_cell.MultiRNNCell(
+        [get_single_cell(hidden_units, self.is_training, keep_prob) for _ in range(rnn_layers)])
+      decoder_state = encoder_final_state
+
+      # decoder_cell, decoder_init_state = build_decoder_cell(pixel_latent_list, use_attention=True)
+      pixel_latent_list = []
       with tf.variable_scope("RNN"):
         # 为句子中的每一个单词建模,共执行maxNumSteps次
         for time_step in range(self.config.max_num_steps):
           if time_step > 0:
             tf.get_variable_scope().reuse_variables()
+
           last_pixel_latent = self.get_latent(last_pixel_vec, self.config.word_embedding_size, self.config.hidden_size,
                                               self.is_training, name='abc')
+          pixel_latent_list.append(last_pixel_latent)
+          pixel_tensor = tf.reshape(pixel_latent_list,
+                                    [self.config.batch_size, len(pixel_latent_list), self.config.hidden_size])
 
-          (increment_weights, state) = decoder_cell(last_pixel_latent, state)
-          increment_weights = tf.reshape(increment_weights,
-                                         [self.config.batch_size, self.config.width, self.config.height])
+          att_decoder_cell, decoder_state = update_attention_decoder_cell(basic_decoder_cell, decoder_state,
+                                                                          pixel_tensor,
+                                                                          length=len(pixel_latent_list),
+                                                                          reuse=not self.is_training)
 
-          cur_word_embedding = self.embedd_encoder_inputs[:, time_step, :]
-          increment_vec = increment_weights[:, :, :, None] * cur_word_embedding[:, None, None, :]
+          (increment_weights, decoder_state) = att_decoder_cell(last_pixel_latent, decoder_state)
+          alignment = decoder_state.alignments
+          # increment_weights = tf.reshape(increment_weights,
+          #                                [self.config.batch_size, self.config.width, self.config.height])
+          #
+          # cur_word_embedding = self.embedd_encoder_inputs[:, time_step, :]
+          # increment_vec = increment_weights[:, :, :, None] * cur_word_embedding[:, None, None, :]
 
-          last_pixel_vec += increment_vec
-          pixel_vec_list.append(last_pixel_vec)
+          # last_pixel_vec += increment_vec
+          # pixel_latent_list.append(last_pixel_vec)
       final_pixel_vec = last_pixel_vec
-
+      self.alignment = alignment
       return final_pixel_vec
 
   def cnn_clf(self, pixel_vec, name, reuse):

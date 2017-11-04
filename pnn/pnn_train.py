@@ -58,7 +58,7 @@ def num_train():
 
   mini_scale = True
   id_sequences = np.load('data/idsMatrix.npy')
-  # id_sequences = id_sequences[12050:12950]
+  id_sequences = id_sequences[12050:12950]
   if mini_scale:
     id_sequences, wordVectors = mini_scale_word_vector(id_sequences, wordVectors, config.vocab_size)
 

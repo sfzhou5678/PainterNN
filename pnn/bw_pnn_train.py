@@ -58,7 +58,7 @@ def num_train():
 
   mini_scale = True
   id_sequences = np.load('data/idsMatrix.npy')
-  # id_sequences = id_sequences[12050:12950]
+  id_sequences = id_sequences[12050:12950]
   if mini_scale:
     id_sequences, wordVectors = mini_scale_word_vector(id_sequences, wordVectors, config.vocab_size)
 
@@ -82,9 +82,9 @@ def num_train():
     with tf.variable_scope("Model", reuse=None, initializer=initializer):
       train_model = BackwardRPNNModel(config=config, is_training=True, GO_ID=GO_ID)
 
-  with tf.name_scope('Valid'):
-    with tf.variable_scope("Model", reuse=True):
-      val_model = BackwardRPNNModel(config=config, is_training=False, GO_ID=GO_ID)
+  # with tf.name_scope('Valid'):
+  #   with tf.variable_scope("Model", reuse=True):
+  #     val_model = BackwardRPNNModel(config=config, is_training=False, GO_ID=GO_ID)
 
   print('Building models completed.')
 
@@ -99,15 +99,20 @@ def num_train():
     print('Assigning WordVectors complected.')
 
     print('===========training===========')
-    need_val = True
+    need_val = False
     for i in range(20000):
 
       # training_input = sess.run(training_input_batch)
       train_ids, train_labels = sess.run([train_ids_batch, train_label_batch])
 
-      _, loss, acc = sess.run([train_model.train_op, train_model.loss,
-                               train_model.accuracy],
+      # _, loss, acc = sess.run([train_model.train_op, train_model.loss,
+      #                          train_model.accuracy],
+      #                         {train_model.input_ids: train_ids, train_model.labels: train_labels})
+
+      _, loss, acc,alignment = sess.run([train_model.train_op, train_model.loss,
+                               train_model.accuracy,train_model.alignment],
                               {train_model.input_ids: train_ids, train_model.labels: train_labels})
+      print(alignment)
 
       if i % 100 == 0:
         if need_val:
