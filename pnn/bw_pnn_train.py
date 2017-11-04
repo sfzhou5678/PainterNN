@@ -59,6 +59,8 @@ def num_train():
   mini_scale = True
   id_sequences = np.load('data/idsMatrix.npy')
   # id_sequences = id_sequences[12050:12950]
+  id_sequences = np.array([sentence[:config.max_num_steps] for sentence in id_sequences])
+
   if mini_scale:
     id_sequences, wordVectors = mini_scale_word_vector(id_sequences, wordVectors, config.vocab_size)
 
@@ -66,12 +68,12 @@ def num_train():
   tfdata_handler.prepare_tfrecords(id_sequences, labels)
 
   # # 这种tfRecords的方式也可以用PTB中的data_producer代替
-  train_ids, train_label = tfdata_handler.get_records('data/train.tfrecords')
+  train_ids, train_label = tfdata_handler.get_records('data/train.tfrecords', config.max_num_steps, config.n_classes)
   train_ids_batch, train_label_batch = tf.train.shuffle_batch([train_ids, train_label], batch_size=config.batch_size,
                                                               capacity=config.batch_size * 3 + 1000,
                                                               min_after_dequeue=config.batch_size * 3 + 1000 - 1)
 
-  val_ids, val_label = tfdata_handler.get_records('data/valid.tfrecords')
+  val_ids, val_label = tfdata_handler.get_records('data/valid.tfrecords', config.max_num_steps, config.n_classes)
   val_ids_batch, val_label_batch = tf.train.shuffle_batch([val_ids, val_label], batch_size=config.batch_size,
                                                           capacity=config.batch_size * 3 + 1000,
                                                           min_after_dequeue=config.batch_size * 3 + 1000 - 1)
@@ -101,8 +103,6 @@ def num_train():
     print('===========training===========')
     need_val = True
     for i in range(20000):
-
-      # training_input = sess.run(training_input_batch)
       train_ids, train_labels = sess.run([train_ids_batch, train_label_batch])
 
       _, loss, acc = sess.run([train_model.train_op, train_model.loss,
@@ -111,13 +111,26 @@ def num_train():
 
       if i % 100 == 0:
         if need_val:
-          val_ids, val_labels = sess.run([val_ids_batch, val_label_batch])
+          if i > 600:
+            total_val_loss = 0
+            total_val_acc = 0
+            n = 300 // config.batch_size
+            for _ in range(n):
+              val_ids, val_labels = sess.run([val_ids_batch, val_label_batch])
 
-          val_loss, val_acc = sess.run([val_model.loss, val_model.accuracy],
-                                       {val_model.input_ids: val_ids, val_model.labels: val_labels})
-          print(loss, acc, val_loss, val_acc)
+              val_loss, val_acc = sess.run([val_model.loss, val_model.accuracy],
+                                           {val_model.input_ids: val_ids, val_model.labels: val_labels})
+              total_val_loss += val_loss
+              total_val_acc += val_acc
+            print('[%d]' % i, loss, acc, total_val_loss / n, total_val_acc / n)
+          else:
+            val_ids, val_labels = sess.run([val_ids_batch, val_label_batch])
+
+            val_loss, val_acc = sess.run([val_model.loss, val_model.accuracy],
+                                         {val_model.input_ids: val_ids, val_model.labels: val_labels})
+            print('[%d]' % i, loss, acc, val_loss, val_acc)
         else:
-          print(loss, acc)
+          print('[%d]' % i, loss, acc)
 
     coord.request_stop()
     coord.join(threads)

@@ -242,9 +242,9 @@ class BackwardRPNNModel:
       network = conv_2d(network, [3, 3, DEPTH1, DEPTH1], [DEPTH1], [1, 1, 1, 1], 'layer1-conv2',
                         norm=norm, is_training=self.is_training)
       # 根据阿里2017ICCV论文，这里不加池化层
-      network = max_pool_2d(network, [1, 2, 2, 1], [1, 2, 2, 1], 'layer1-pool1')
-
-      # 第二层
+      # network = max_pool_2d(network, [1, 2, 2, 1], [1, 2, 2, 1], 'layer1-pool1')
+      #
+      # # 第二层
       # network = conv_2d(network, [3, 3, DEPTH1, DEPTH2], [DEPTH2], [1, 1, 1, 1], 'layer2-conv1',
       #                   norm=norm, is_training=self.is_training)
       # network = conv_2d(network, [3, 3, DEPTH2, DEPTH2], [DEPTH2], [1, 1, 1, 1], 'layer2-conv2',
