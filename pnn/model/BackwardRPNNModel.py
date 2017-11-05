@@ -212,11 +212,11 @@ class BackwardRPNNModel:
 
     global_step = tf.contrib.framework.get_or_create_global_step()
     learning_rate = tf.train.exponential_decay(
-      0.01,
+      self.config.base_learning_rate,
       global_step,
       300,
-      0.98,
-      staircase=True
+      self.config.lr_decay,
+      # staircase=True
     )
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss, global_step)
 
