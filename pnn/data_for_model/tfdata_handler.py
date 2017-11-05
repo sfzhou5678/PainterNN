@@ -27,7 +27,7 @@ def prepare_tfrecords(id_sequences, labels):
     writer.close()
 
 
-def get_records(record_path):
+def get_records(record_path,max_num_steps, n_classes):
   reader = tf.TFRecordReader()
   filename_queue = tf.train.string_input_producer([record_path])
 
@@ -35,12 +35,12 @@ def get_records(record_path):
   features = tf.parse_single_example(
     serialized_example,
     features={
-      "id_sequence": tf.FixedLenFeature([250], tf.int64),
+      "id_sequence": tf.FixedLenFeature([max_num_steps], tf.int64),
       "label": tf.FixedLenFeature([], tf.int64)
     })
   id_sequence = tf.cast(features['id_sequence'], tf.int32)
   label = tf.cast(features['label'], tf.int32)
-  label = tf.one_hot(label, 2)
+  label = tf.one_hot(label, n_classes)
 
   return id_sequence, label
 

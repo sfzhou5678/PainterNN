@@ -125,8 +125,8 @@ class BackwardRPNNModel:
 
         return decoder_cell, decoder_init_state
 
-      def update_attention_decoder_cell(basic_decoder_cell, last_state, memory, length,reuse):
-        with tf.variable_scope("bw_attention%d" % length,reuse=reuse):
+      def update_attention_decoder_cell(basic_decoder_cell, last_state, memory, length, reuse):
+        with tf.variable_scope("bw_attention%d" % length, reuse=reuse):
           attention_mechanism = tf.contrib.seq2seq.LuongAttention(
             self.config.hidden_size, memory,
             memory_sequence_length=tf.constant(length,
@@ -146,15 +146,16 @@ class BackwardRPNNModel:
         [self.config.batch_size, self.config.width, self.config.height, self.config.word_embedding_size],
         dtype=tf.float32)
 
-      # pixel_latent_list = tf.convert_to_tensor(pixel_latent_list, name="pixel_latent_list", dtype=tf.int32)
-      # pixel_latent_list = tf.reshape(pixel_latent_list, [-1])
+      # basic_decoder_cell = tf.nn.rnn_cell.MultiRNNCell(
+      #   [get_single_cell(hidden_units, self.is_training, keep_prob) for _ in range(rnn_layers)])
+      # decoder_state = encoder_final_state
 
-      basic_decoder_cell = tf.nn.rnn_cell.MultiRNNCell(
-        [get_single_cell(hidden_units, self.is_training, keep_prob) for _ in range(rnn_layers)])
-      decoder_state = encoder_final_state
-
-      # decoder_cell, decoder_init_state = build_decoder_cell(pixel_latent_list, use_attention=True)
       pixel_latent_list = []
+
+      tmp_memory = tf.zeros([self.config.batch_size, 1, self.config.hidden_size], dtype=tf.float32)
+
+      decoder_cell, decoder_init_state = build_decoder_cell(tmp_memory, use_attention=True)
+      decoder_state = decoder_init_state
       with tf.variable_scope("RNN"):
         # 为句子中的每一个单词建模,共执行maxNumSteps次
         for time_step in range(self.config.max_num_steps):
@@ -163,16 +164,16 @@ class BackwardRPNNModel:
 
           last_pixel_latent = self.get_latent(last_pixel_vec, self.config.word_embedding_size, self.config.hidden_size,
                                               self.is_training, name='abc')
+
           pixel_latent_list.append(last_pixel_latent)
           pixel_tensor = tf.reshape(pixel_latent_list,
                                     [self.config.batch_size, len(pixel_latent_list), self.config.hidden_size])
 
-          att_decoder_cell, decoder_state = update_attention_decoder_cell(basic_decoder_cell, decoder_state,
-                                                                          pixel_tensor,
-                                                                          length=len(pixel_latent_list),
-                                                                          reuse=not self.is_training)
+          decoder_cell.set_new_memory(pixel_tensor,
+                                      tf.constant(len(pixel_latent_list), shape=[self.config.batch_size],
+                                                  dtype=tf.int32))
 
-          (increment_weights, decoder_state) = att_decoder_cell(last_pixel_latent, decoder_state)
+          (increment_weights, decoder_state) = decoder_cell(last_pixel_latent, decoder_state)
           alignment = decoder_state.alignments
           # increment_weights = tf.reshape(increment_weights,
           #                                [self.config.batch_size, self.config.width, self.config.height])

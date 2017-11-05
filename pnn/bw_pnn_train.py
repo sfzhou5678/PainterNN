@@ -59,6 +59,10 @@ def num_train():
   mini_scale = True
   id_sequences = np.load('data/idsMatrix.npy')
   id_sequences = id_sequences[12050:12950]
+
+  config.max_num_steps = 10
+  id_sequences = np.array([sentence[:config.max_num_steps] for sentence in id_sequences])
+
   if mini_scale:
     id_sequences, wordVectors = mini_scale_word_vector(id_sequences, wordVectors, config.vocab_size)
 
@@ -66,12 +70,12 @@ def num_train():
   tfdata_handler.prepare_tfrecords(id_sequences, labels)
 
   # # 这种tfRecords的方式也可以用PTB中的data_producer代替
-  train_ids, train_label = tfdata_handler.get_records('data/train.tfrecords')
+  train_ids, train_label = tfdata_handler.get_records('data/train.tfrecords', config.max_num_steps, config.n_classes)
   train_ids_batch, train_label_batch = tf.train.shuffle_batch([train_ids, train_label], batch_size=config.batch_size,
                                                               capacity=config.batch_size * 3 + 1000,
                                                               min_after_dequeue=config.batch_size * 3 + 1000 - 1)
 
-  val_ids, val_label = tfdata_handler.get_records('data/valid.tfrecords')
+  val_ids, val_label = tfdata_handler.get_records('data/valid.tfrecords', config.max_num_steps, config.n_classes)
   val_ids_batch, val_label_batch = tf.train.shuffle_batch([val_ids, val_label], batch_size=config.batch_size,
                                                           capacity=config.batch_size * 3 + 1000,
                                                           min_after_dequeue=config.batch_size * 3 + 1000 - 1)
@@ -109,12 +113,13 @@ def num_train():
       #                          train_model.accuracy],
       #                         {train_model.input_ids: train_ids, train_model.labels: train_labels})
 
-      _, loss, acc,alignment = sess.run([train_model.train_op, train_model.loss,
-                               train_model.accuracy,train_model.alignment],
-                              {train_model.input_ids: train_ids, train_model.labels: train_labels})
-      print(alignment)
+      _, loss, acc, alignment = sess.run([train_model.train_op, train_model.loss,
+                                          train_model.accuracy, train_model.alignment],
+                                         {train_model.input_ids: train_ids, train_model.labels: train_labels})
 
       if i % 100 == 0:
+        print(alignment)
+        print(len(alignment))
         if need_val:
           val_ids, val_labels = sess.run([val_ids_batch, val_label_batch])
 
