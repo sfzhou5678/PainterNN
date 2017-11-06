@@ -1,5 +1,6 @@
+# encoding:utf-8
 import tensorflow as tf
-from pnn.model.cnn_utils import *
+from model.cnn_utils import *
 
 
 class BackwardRPNNModel:

@@ -1,3 +1,4 @@
+# encoding:utf-8
 class SmallConfig:
   # 整体相关
   batch_size = 16
@@ -12,8 +13,8 @@ class SmallConfig:
   init_scale = 0.1
 
   # CNN相关(现在直接写在代码里面了)
-  width=22
-  height=22
+  width=28
+  height=28
 
   # RNN相关
   word_embedding_size = 50

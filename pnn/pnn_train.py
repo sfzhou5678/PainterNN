@@ -1,3 +1,4 @@
+# encoding:utf-8
 from pnn.model.ForwardRPNNModel import ForwardRPNNModel
 
 import numpy as np

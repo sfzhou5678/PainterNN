@@ -1,9 +1,10 @@
-from pnn.model.BackwardRPNNModel import BackwardRPNNModel
+# encoding:utf-8
+from model.BackwardRPNNModel import BackwardRPNNModel
 
 import numpy as np
 import tensorflow as tf
-from pnn.data_for_model import tfdata_handler
-from pnn.config import SmallConfig
+from data_for_model import tfdata_handler
+from config import SmallConfig
 from collections import Counter
 
 slim = tf.contrib.slim
@@ -48,6 +49,9 @@ END_ID = 2
 
 
 def num_train():
+  log_path = 'RunningInfo.log'
+  log_wf = open(log_path, 'w')
+
   # wordsList = np.load('data/wordsList.npy').tolist()
   # wordsList = [word.decode('UTF-8') for word in wordsList]  # Encode words as UTF-8
   wordVectors = np.load('data/wordVectors.npy')
@@ -122,15 +126,21 @@ def num_train():
                                            {val_model.input_ids: val_ids, val_model.labels: val_labels})
               total_val_loss += val_loss
               total_val_acc += val_acc
+
             print('[%d]' % i, loss, acc, total_val_loss / n, total_val_acc / n)
+            log_wf.write('[%d] %f %f %f %f' % (i, loss, acc, total_val_acc / n, total_val_loss / n))
+
+            # log_wf.wri('[%d]' % i, loss, acc, total_val_loss / n, total_val_acc / n)
           else:
             val_ids, val_labels = sess.run([val_ids_batch, val_label_batch])
 
             val_loss, val_acc = sess.run([val_model.loss, val_model.accuracy],
                                          {val_model.input_ids: val_ids, val_model.labels: val_labels})
             print('[%d]' % i, loss, acc, val_loss, val_acc)
+            log_wf.write('[%d] %f %f %f %f' % (i, loss, acc, val_loss, val_acc))
         else:
           print('[%d]' % i, loss, acc)
+          log_wf.write('[%d] %f %f' % (i, loss, acc))
 
     coord.request_stop()
     coord.join(threads)
