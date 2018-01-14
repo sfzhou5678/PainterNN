@@ -1,6 +1,6 @@
 class SmallConfig:
   # 整体相关
-  batch_size = 16
+  batch_size = 8
   n_classes = 2
 
   max_num_steps = 200
